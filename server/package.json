@@ -1,26 +1,44 @@
 {
   "name": "ai-text-to-pdf-server",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
+  "description": "Enhanced AI-powered PDF generation server with custom themes and templates",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "test": "echo \"Add tests here\" && exit 0"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@types/pdfkit": "^0.17.2",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "google-auth-library": "^10.2.1",
+    "helmet": "^7.2.0",
     "marked": "^16.1.2",
     "pdfkit": "^0.13.0"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
+    "@types/cors": "^2.8.19",
     "@types/express": "^4.17.17",
     "@types/marked": "^5.0.2",
     "@types/node": "^24.2.1",
     "ts-node-dev": "^2.0.0",
-    "tsx": "^4.20.3"
-  }
+    "tsx": "^4.20.3",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "pdf",
+    "ai",
+    "document-generation",
+    "typescript",
+    "express",
+    "gemini-ai"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }
