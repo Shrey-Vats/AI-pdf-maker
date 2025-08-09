@@ -2,81 +2,137 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-console.log(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
-console.log(process.env.HI)
 // Initialize with better error handling
-const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+const apiKey = "AIzaSyARUYXBgL2CZ-EHNML-aGGwCXOwYShtEoc";
 if (!apiKey) {
-  throw new Error('GOOGLE_API_KEY or GEMINI_API_KEY environment variable is required');
+  console.warn('⚠️  No API key found. AI generation will be disabled.');
 }
 
-const genAI = new GoogleGenerativeAI(apiKey);
+const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
-// Support for different models
-const getModel = (modelType: 'fast' | 'pro' = 'fast') => {
-  const modelName = modelType === 'pro' ? 'gemini-1.5-pro' : 'gemini-1.5-flash-latest';
-  return genAI.getGenerativeModel({ model: modelName });
+// Support for different models with enhanced configuration
+const getModel = (modelType: 'fast' | 'pro' | 'code' = 'fast') => {
+  if (!genAI) throw new Error('AI service unavailable: No API key configured');
+  
+  const modelConfigs = {
+    fast: 'gemini-1.5-flash-latest',
+    pro: 'gemini-1.5-pro',
+    code: 'gemini-1.5-pro' // Use pro for coding tasks
+  };
+  
+  return genAI.getGenerativeModel({ 
+    model: modelConfigs[modelType],
+    generationConfig: {
+      temperature: modelType === 'code' ? 0.3 : 0.7, // Lower temperature for code
+      maxOutputTokens: modelType === 'code' ? 4000 : 2000,
+    }
+  });
 };
 
 export interface GeminiOptions {
   maxTokens?: number;
   temperature?: number;
-  model?: 'fast' | 'pro';
+  model?: 'fast' | 'pro' | 'code';
   systemPrompt?: string;
+  templateType?: string;
 }
 
 export async function callGemini(prompt: string, opts: GeminiOptions = {}): Promise<string> {
   const {
-    maxTokens = 1500,
+    maxTokens = 2000,
     temperature = 0.7,
     model = 'fast',
-    systemPrompt
+    systemPrompt,
+    templateType
   } = opts;
 
-  console.log(`Calling Gemini API with model: ${model === 'fast' ? 'gemini-1.5-flash-latest' : 'gemini-1.5-pro'}`);
+  if (!genAI) {
+    throw new Error('AI generation unavailable: Please configure GOOGLE_API_KEY or GEMINI_API_KEY environment variable');
+  }
+
+  console.log(`🤖 Calling Gemini API with model: ${model} for template: ${templateType || 'custom'}`);
 
   try {
     const modelInstance = getModel(model);
     
-    const generationConfig = {
-      maxOutputTokens: maxTokens,
-      temperature: temperature,
-    };
+    // Enhanced system prompts based on template type
+    let enhancedSystemPrompt = systemPrompt;
+    
+    if (templateType === 'coding-learning') {
+      enhancedSystemPrompt = `You are an expert programming instructor and technical writer. Your goal is to create comprehensive, beginner-friendly yet thorough programming tutorials.
+
+IMPORTANT GUIDELINES:
+- Write in a clear, educational tone suitable for beginners to intermediate learners
+- Include practical, working code examples with detailed explanations
+- Use proper markdown formatting with syntax highlighting
+- Structure content logically from basics to advanced concepts
+- Include real-world applications and use cases
+- Add helpful tips, common pitfalls, and best practices
+- Make code examples copy-pasteable and functional
+- Include project ideas and exercises
+- Use emojis in headings for better visual organization
+- Explain technical concepts in simple terms first, then dive deeper
+
+FORMAT REQUIREMENTS:
+- Use \`\`\`javascript, \`\`\`python, etc. for code blocks
+- Use **bold** for important concepts and terms
+- Use *italic* for variable names and file names
+- Use > for important tips and warnings
+- Structure with clear headings (# ## ###)
+- Include numbered steps for tutorials
+- Add plenty of examples and use cases`;
+    } else if (templateType === 'business-report') {
+      enhancedSystemPrompt = `You are a senior business analyst and strategic consultant. Create professional, data-driven business documents with:
+- Executive-level insights and recommendations
+- Market analysis with actionable intelligence
+- Financial projections and risk assessments
+- Implementation timelines and success metrics
+- Professional business language and terminology`;
+    } else if (templateType === 'research-paper') {
+      enhancedSystemPrompt = `You are an academic researcher and scholar. Create rigorous, well-structured research documents with:
+- Proper academic formatting and structure
+- Comprehensive literature context
+- Clear methodology and analysis
+- Evidence-based conclusions
+- Academic writing style and citations`;
+    }
 
     // Combine system prompt with user prompt if provided
-    const finalPrompt = systemPrompt 
-      ? `${systemPrompt}\n\nUser Request: ${prompt}`
+    const finalPrompt = enhancedSystemPrompt 
+      ? `${enhancedSystemPrompt}\n\n=== USER REQUEST ===\n${prompt}`
       : prompt;
 
     const result = await modelInstance.generateContent(finalPrompt);
     const response = result.response;
     
-    // Better error handling for safety ratings
+    // Enhanced error handling for safety ratings
     if (response.promptFeedback?.blockReason) {
-      throw new Error(`Content blocked: ${response.promptFeedback.blockReason}`);
+      throw new Error(`Content blocked by safety filters: ${response.promptFeedback.blockReason}. Please try rephrasing your request.`);
     }
 
     const text = response.text();
 
     if (!text || text.trim().length === 0) {
-      throw new Error('No content generated by AI model');
+      throw new Error('No content generated by AI model. Please try a different prompt.');
     }
 
-    console.log(`Generated ${text.length} characters of content`);
+    console.log(`✅ Generated ${text.length} characters of content for ${templateType || 'custom'} template`);
     return text.trim();
 
   } catch (error: any) {
-    console.error('Gemini API Error:', error);
+    console.error('❌ Gemini API Error:', error);
     
     // Provide more specific error messages
     if (error.message.includes('API key')) {
-      throw new Error('Invalid API key. Please check your Google AI API key configuration.');
-    } else if (error.message.includes('quota')) {
-      throw new Error('API quota exceeded. Please try again later or check your billing.');
-    } else if (error.message.includes('blocked')) {
-      throw new Error('Content was blocked by safety filters. Please try rephrasing your request.');
+      throw new Error('Invalid or missing API key. Please check your Google AI API key configuration.');
+    } else if (error.message.includes('quota') || error.message.includes('rate limit')) {
+      throw new Error('API quota exceeded or rate limited. Please try again in a few minutes.');
+    } else if (error.message.includes('blocked') || error.message.includes('safety')) {
+      throw new Error('Content was blocked by safety filters. Please try rephrasing your request with different terms.');
     } else if (error.message.includes('timeout')) {
-      throw new Error('Request timeout. Please try with a shorter prompt or try again.');
+      throw new Error('Request timeout. The AI service took too long to respond. Please try with a shorter prompt.');
+    } else if (error.message.includes('network') || error.message.includes('fetch')) {
+      throw new Error('Network error. Please check your internet connection and try again.');
     } else {
       throw new Error(`AI generation failed: ${error.message}`);
     }
@@ -89,41 +145,145 @@ export async function generateWithTemplate(
   templateType: string,
   language: string = 'english'
 ): Promise<string> {
-  const systemPrompt = `You are an expert document writer. Generate high-quality, professional content in ${language}.
-    Always use proper Markdown formatting:
-    - Use # for main titles, ## for sections, ### for subsections
-    - Use **bold** for important terms
-    - Use *italic* for emphasis
-    - Use bullet points (*) for lists
-    - Use > for important quotes or callouts
-    - Use \`code\` for technical terms
-    - Ensure proper paragraph spacing and structure`;
+  const languageInstruction = language !== 'english' 
+    ? `CRITICAL: Write the ENTIRE response in ${language}. All headings, explanations, code comments, and content must be in ${language}.`
+    : '';
+
+  const systemPrompt = `${languageInstruction}
+
+You are an expert document writer specializing in ${templateType} documents. Generate high-quality, professional content with:
+
+FORMATTING REQUIREMENTS:
+- Use proper Markdown formatting throughout
+- Use # for main titles, ## for sections, ### for subsections  
+- Use **bold** for important terms and concepts
+- Use *italic* for emphasis and technical terms
+- Use bullet points (*) for features and lists
+- Use numbered lists (1.) for step-by-step processes
+- Use > for important quotes, tips, or callouts
+- Use \`inline code\` for technical terms and short snippets
+- Use \`\`\`language for multi-line code blocks with syntax highlighting
+- Use --- for section breaks when appropriate
+- Ensure proper paragraph spacing and logical structure
+
+CONTENT QUALITY:
+- Make content comprehensive yet accessible
+- Include practical examples and real-world applications
+- Use professional but approachable language
+- Ensure logical flow and clear transitions
+- Add specific details and actionable insights`;
 
   return callGemini(topic, {
     systemPrompt,
-    maxTokens: 2000,
-    temperature: 0.8,
-    model: 'pro' // Use pro model for better quality with templates
+    maxTokens: templateType === 'coding-learning' ? 4000 : 2500,
+    temperature: templateType === 'coding-learning' ? 0.4 : 0.8,
+    model: templateType === 'coding-learning' ? 'code' : 'pro',
+    templateType
   });
 }
 
 export async function enhanceExistingContent(
   content: string,
-  instructions: string = 'Improve formatting and structure'
+  instructions: string = 'Improve formatting and structure',
+  templateType?: string
 ): Promise<string> {
-  const systemPrompt = `You are a document editor. Enhance the provided content while maintaining its core meaning.
-    Focus on:
-    - Better Markdown formatting
-    - Improved structure and flow
-    - Professional language
-    - Clear section organization
-    - Proper use of headings, lists, and emphasis`;
+  const systemPrompt = `You are a professional document editor and formatter. Enhance the provided content while maintaining its core meaning and improving its presentation.
 
-  const prompt = `${instructions}\n\nContent to enhance:\n\n${content}`;
+ENHANCEMENT FOCUS:
+- Improve Markdown formatting and structure
+- Enhance readability and flow
+- Add professional language and terminology
+- Ensure clear section organization
+- Optimize for PDF generation
+- Add proper headings, emphasis, and formatting
+- Include relevant examples if missing
+${templateType === 'coding-learning' ? '- Ensure code examples are properly formatted and explained' : ''}
+
+PRESERVE:
+- Original meaning and key information
+- Technical accuracy
+- Author's intended message and tone`;
+
+  const prompt = `${instructions}
+
+=== CONTENT TO ENHANCE ===
+${content}`;
 
   return callGemini(prompt, {
     systemPrompt,
-    maxTokens: 2500,
-    temperature: 0.6
+    maxTokens: 3000,
+    temperature: 0.5,
+    model: templateType === 'coding-learning' ? 'code' : 'fast',
+    templateType
   });
+}
+
+// --- Coding-specific generation function ---
+export async function generateCodingTutorial(
+  technology: string,
+  skillLevel: 'beginner' | 'intermediate' | 'advanced' = 'beginner',
+  language: string = 'english'
+): Promise<string> {
+  const levelInstructions = {
+    beginner: 'Focus on fundamentals, basic concepts, and step-by-step guidance. Include plenty of explanations and simple examples.',
+    intermediate: 'Cover practical applications, common patterns, and real-world projects. Include moderately complex examples.',
+    advanced: 'Focus on advanced techniques, optimization, architecture patterns, and complex implementations.'
+  };
+
+  const systemPrompt = `You are a world-class programming instructor and technical writer specializing in ${technology}. 
+
+TARGET AUDIENCE: ${skillLevel} level programmers
+LANGUAGE: Write everything in ${language}
+
+CREATE A COMPREHENSIVE TUTORIAL that includes:
+
+1. **Clear Learning Path**: Structured progression from basics to advanced
+2. **Practical Examples**: Working code snippets with line-by-line explanations
+3. **Real-world Projects**: Hands-on applications users can build
+4. **Best Practices**: Industry-standard approaches and patterns
+5. **Common Pitfalls**: Mistakes to avoid with solutions
+6. **Resource Links**: Additional learning materials and documentation
+
+TECHNICAL REQUIREMENTS:
+- Include functional, copy-pasteable code examples
+- Use proper syntax highlighting with \`\`\`language blocks
+- Explain complex concepts in simple terms
+- Add code comments in examples
+- Include error handling examples
+- Show both basic and advanced usage patterns
+
+${levelInstructions[skillLevel]}
+
+Make this tutorial comprehensive enough to serve as a complete learning resource while being engaging and practical.`;
+
+  return callGemini(`Create a complete learning guide for: ${technology}`, {
+    systemPrompt,
+    maxTokens: 4000,
+    temperature: 0.4,
+    model: 'code',
+    templateType: 'coding-learning'
+  });
+}
+
+// --- Health check function ---
+export async function testAIConnection(): Promise<{ status: string; model?: string; error?: string }> {
+  if (!genAI) {
+    return { status: 'unavailable', error: 'No API key configured' };
+  }
+
+  try {
+    const model = getModel('fast');
+    const result = await model.generateContent('Test connection. Respond with "AI service operational"');
+    const text = result.response.text();
+    
+    return { 
+      status: 'connected', 
+      model: 'gemini-1.5-flash-latest',
+    };
+  } catch (error: any) {
+    return { 
+      status: 'error', 
+      error: error.message 
+    };
+  }
 }
